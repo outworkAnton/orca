@@ -21,6 +21,7 @@ import {
   isKnownReadyPromptPreview,
   isQuietReadyScreenBody
 } from './terminal/wait/terminal-wait-detection'
+import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
 
 vi.mock('electron', () => ({
   BrowserWindow: { fromId: vi.fn(() => null) },
@@ -318,5 +319,37 @@ describe('Antigravity screen ruled readiness', () => {
       await runtime.readTerminal(handle, { screen: true })
       expect(await settles()).toBe(true)
     }, 45_000)
+  })
+})
+
+describe('Antigravity draft-paste readiness signal', () => {
+  const scanReady = (data: string): boolean => {
+    const scanner = createDraftPasteReadyScanner('antigravity-composer-prompt')
+    for (let offset = 0; offset < data.length; offset += 256) {
+      if (scanner.observe(data.slice(offset, offset + 256)).ready) {
+        return true
+      }
+    }
+    return false
+  }
+
+  it.each([
+    ['antigravity-ready-api-key-gemini-model', true],
+    ['antigravity-1-2-14-ready', true],
+    ['antigravity-1-2-14-ready-80x24', true],
+    ['antigravity-dialog-trust-workspace', false],
+    ['antigravity-1-2-14-trust-dialog', false]
+  ])('%s fires: %s', (name, ready) => {
+    expect(scanReady(readRuntimeFixture(name))).toBe(ready)
+  })
+
+  it('never arms the quiet window from the shell prompt that launches agy (#18088)', () => {
+    const scanner = createDraftPasteReadyScanner('antigravity-composer-prompt')
+    // zsh enables paste at its prompt, echoes the command, then disables paste before exec.
+    expect(scanner.observe("\x1b[?2004h% agy '--dangerously-skip-permissions'")).toEqual({
+      ready: false,
+      armQuietTimer: false
+    })
+    expect(scanner.observe('\x1b[?2004l\r\r\n? for shortcuts').ready).toBe(false)
   })
 })
